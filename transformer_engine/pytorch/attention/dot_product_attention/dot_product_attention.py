@@ -317,6 +317,7 @@ class DotProductAttention(TransformerEngineBaseModule):
         cp_comm_type: str = "p2p",
         softmax_scale: Optional[float] = None,
         softmax_type: str = "vanilla",
+        softcap: float = 0.,
         return_max_logit: Optional[bool] = False,
     ) -> None:
         super().__init__()
@@ -417,6 +418,8 @@ class DotProductAttention(TransformerEngineBaseModule):
                 get_rng_state_tracker=get_rng_state_tracker,
             )
 
+        self.softcap = softcap
+
         attn_kwargs = {
             "attention_dropout": attention_dropout,
             "attention_dropout_ctx": attention_dropout_ctx,
@@ -428,6 +431,7 @@ class DotProductAttention(TransformerEngineBaseModule):
             layer_number=layer_number,
             deterministic=self.deterministic,
             **attn_kwargs,
+            softcap=self.softcap,
         )
 
         # Instantiating three types since use of flash-attn and FusedAttention
@@ -782,6 +786,7 @@ class DotProductAttention(TransformerEngineBaseModule):
         key_layer: torch.Tensor,
         value_layer: torch.Tensor,
         attention_mask: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]] = None,
+        concat_heads: bool = True,
         qkv_format: str = None,
         cu_seqlens_q: torch.Tensor = None,
         cu_seqlens_kv: torch.Tensor = None,
@@ -799,6 +804,7 @@ class DotProductAttention(TransformerEngineBaseModule):
         inference_params: Optional[InferenceParams] = None,
         pad_between_seqs: Optional[bool] = None,
         fp8_output: Optional[bool] = False,
+        position_ids: Optional[torch.Tensor] = None, # useless, for compatibility
     ) -> torch.Tensor:
         """
         Dot Product Attention Layer.
@@ -1394,6 +1400,7 @@ class DotProductAttention(TransformerEngineBaseModule):
                     key_layer,
                     value_layer,
                     attention_mask=attention_mask,
+                    concat_heads=concat_heads,
                     qkv_layout=qkv_layout,
                     cu_seqlens_q=cu_seqlens_q,
                     cu_seqlens_kv=cu_seqlens_kv,
@@ -1413,7 +1420,7 @@ class DotProductAttention(TransformerEngineBaseModule):
                     flash_attention_backend=flash_attention_backend,
                     fp8_output=fp8_output,
                 )
-
+            assert concat_heads, "concat_heads=False is only supported with Flash Attention."
             if use_fused_attention:
                 fu_core_attention_bias_type = core_attention_bias_type
                 fu_core_attention_bias = core_attention_bias

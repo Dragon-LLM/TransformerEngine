@@ -618,6 +618,7 @@ class FlashAttention(torch.nn.Module):
         attention_dropout: float = 0.0,
         attention_dropout_ctx: Optional[Callable] = nullcontext,
         attention_type: str = "self",
+        softcap: float = 0.0,
         layer_number: Optional[int] = None,
         deterministic: bool = False,
     ) -> None:
@@ -635,6 +636,7 @@ class FlashAttention(torch.nn.Module):
         self.attention_dropout_ctx = attention_dropout_ctx
         self.attention_dropout = attention_dropout
         self.attention_type = attention_type
+        self.softcap = softcap
         self.layer_number = 1 if layer_number is None else layer_number
         self.deterministic = deterministic
         self.logger = logging.getLogger("FlashAttention")
@@ -650,6 +652,7 @@ class FlashAttention(torch.nn.Module):
         key_layer: torch.Tensor,
         value_layer: torch.Tensor,
         attention_mask: Optional[Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]] = None,
+        concat_heads: bool = True,
         qkv_layout: str = "sbh3d",
         cu_seqlens_q: Optional[torch.Tensor] = None,
         cu_seqlens_kv: Optional[torch.Tensor] = None,
@@ -918,6 +921,7 @@ class FlashAttention(torch.nn.Module):
                         fa_optional_forward_args_thd.append(max_seqlen_kv)
                 if not use_flash_attn_3:
                     fa_optional_forward_kwargs = {}
+                    fa_optional_forward_kwargs["softcap"] = self.softcap
                     if fa_utils.v2_3_plus:
                         fa_optional_forward_kwargs["window_size"] = window_size
                     if fa_utils.v2_4_plus:
@@ -945,6 +949,7 @@ class FlashAttention(torch.nn.Module):
                     )
                 else:
                     fa_3_optional_forward_kwargs = {}
+                    fa_3_optional_forward_kwargs["softcap"] = self.softcap
                     fa_3_optional_forward_kwargs["window_size"] = window_size
                     if inference_params is None:
                         fa_3_optional_forward_kwargs["deterministic"] = self.deterministic
@@ -1048,24 +1053,46 @@ class FlashAttention(torch.nn.Module):
         if q_format == "sbhd":
             # (bs)hd -> bs(hd) -> sb(hd)
             if fp8 and fp8_output:
-                output_data = (
-                    output._data.reshape(batch_size, max_seqlen_q // cp_size, -1)
-                    .transpose(0, 1)
-                    .contiguous()
-                )
+                if concat_heads:
+                    output_data = (
+                        output._data.reshape(batch_size, max_seqlen_q // cp_size, -1)
+                        .transpose(0, 1)
+                        .contiguous()
+                    )
+                else:
+                    output_data = (
+                        output._data.reshape(
+                            batch_size,
+                            max_seqlen_q // cp_size,
+                            -1,
+                            output.shape[-1],
+                        )
+                        .transpose(0, 1)
+                        .contiguous()
+                    )
                 output = Float8Tensor.make_like(
                     output,
                     data=output_data,
                     shape=output_data.shape,
                 )
             else:
-                output = output.view(batch_size, max_seqlen_q // cp_size, -1).transpose(0, 1)
+                if concat_heads:
+                    output = output.view(batch_size, max_seqlen_q // cp_size, -1).transpose(0, 1)
+                else:
+                    output = output.reshape(batch_size, max_seqlen_q // cp_size, -1, output.shape[-1]).transpose(0, 1)
         elif q_format == "bshd":
-            # (bs)hd -> bs(hd)
-            output = output.reshape(batch_size, max_seqlen_q // cp_size, -1)
+            if concat_heads:
+                # (bs)hd -> bs(hd)
+                output = output.reshape(batch_size, max_seqlen_q // cp_size, -1)
+            else:
+                # (bs)hd -> bshd
+                output = output.reshape(batch_size, max_seqlen_q // cp_size, -1, output.shape[-1])
         elif q_format == "thd":
-            # thd -> t(hd)
-            output = output.reshape(output.shape[0], -1)
+            if concat_heads:
+                # thd -> t(hd)
+                output = output.reshape(output.shape[0], -1)
+            else:
+                pass
 
         return output.contiguous()
 
