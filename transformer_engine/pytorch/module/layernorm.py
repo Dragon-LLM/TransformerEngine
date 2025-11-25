@@ -43,7 +43,8 @@ class LayerNorm(_LayerNormOp):
 
             .. math::
                 y = \frac{x - \mathrm{E}[x]}{\sqrt{\mathrm{Var}[x] + \varepsilon}} * (1 + \gamma) + \beta
-
+    use_weights: bool, default = True
+        If `False`, the affine transform is not applied.
     sm_margin: int or dict, default = 0
         Number of SMs to exclude when launching CUDA kernels. This
         helps overlap with other kernels, e.g. communication kernels.
@@ -66,6 +67,7 @@ class LayerNorm(_LayerNormOp):
         sequence_parallel: Optional[bool] = None,  # legacy
         params_dtype: Optional[torch.dtype] = None,  # deprecated
         zero_centered_gamma: bool = False,
+        use_weights: bool = True,
         hidden_size: Optional[int] = None,  # deprecated
         **kwargs,
     ) -> None:
@@ -102,6 +104,7 @@ class LayerNorm(_LayerNormOp):
             normalized_shape,
             eps=eps,
             zero_centered_gamma=zero_centered_gamma,
+            use_weights=use_weights,
             **kwargs,
         )
 

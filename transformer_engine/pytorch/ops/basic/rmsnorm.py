@@ -56,7 +56,8 @@ class RMSNorm(BasicOperation):
 
             .. math::
                 y = \frac{x}{\sqrt{\mathrm{Var}[x] + \varepsilon}} * (1 + \gamma)
-
+    use_weights: bool, default = True
+        If `False`, the affine transform is not applied.
     sm_margin: int, default = 0
         Number of SMs to exclude when launching CUDA kernels. This
         helps overlap with other kernels, e.g. communication kernels.
@@ -74,11 +75,13 @@ class RMSNorm(BasicOperation):
         device: Optional[torch.device | str] = None,
         dtype: Optional[torch.dtype] = None,
         zero_centered_gamma: bool = False,
+        use_weights: bool = True,
         sm_margin: int = 0,
     ) -> None:
         super().__init__()
         self.eps: float = eps
         self.zero_centered_gamma: bool = zero_centered_gamma
+        self.use_weights: bool = use_weights
 
         # Parameter shape
         if not isinstance(normalized_shape, Iterable):
@@ -98,7 +101,7 @@ class RMSNorm(BasicOperation):
             device=device,
             dtype=canonicalize_dtype(dtype),
         )
-        weight = torch.nn.Parameter(weight)
+        weight = torch.nn.Parameter(weight, requires_grad=use_weights)
         self.weight: torch.nn.Parameter
         self.register_parameter("weight", weight)
         if not defer_param_init:
@@ -148,7 +151,7 @@ class RMSNorm(BasicOperation):
 
         # Save updated parameter
         if not isinstance(weight, torch.nn.Parameter):
-            weight = torch.nn.Parameter(weight)
+            weight = torch.nn.Parameter(weight, requires_grad=self.use_weights)
         self.weight = weight
 
     def pre_first_fuser_forward(self) -> None:
