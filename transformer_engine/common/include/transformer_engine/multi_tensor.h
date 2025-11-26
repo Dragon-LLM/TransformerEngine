@@ -203,6 +203,158 @@ void nvte_multi_tensor_adam_capturable_master_cuda(
     const float epsilon, NVTETensor step, const int mode, const int bias_correction,
     const float weight_decay, NVTETensor inv_scale, cudaStream_t stream);
 
+/*!  \brief Compute and apply gradient update to parameters for Ademamix optimizer.
+ *
+ * \warning   This API is **experimental** and subject to change.
+ *
+ *  \param[in]      chunk_size              Number of tensor elements processed by a CUDA block.
+ *  \param[in]      noop_flag               If this single element tensor has non-zero value, kernel will exit immediately.
+ *  \param[in,out]  tensor_lists            2D array of input tensors.
+ *  \param[in]      num_tensor_lists        Size (dim0) of tensor_lists.
+ *  \param[in]      num_tensors_per_list    Size (dim1) of tensor_lists.
+ *  \param[in]      lr                      Learning rate.
+ *  \param[in]      beta1                   Coefficient for first moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta3                   Coefficient for first slow moment of gradient.
+ *  \param[in]      alpha                   Coefficient for slow moment update.
+ *  \param[in]      normalize_alpha         Whether to normalize by (1+alpha).
+ *  \param[in]      epsilon                 Term added to the denominator for numerical stability.
+ *  \param[in]      step                    Iteration counter.
+ *  \param[in]      bias_correction         Whether to apply correction factor for moment estimates.
+ *  \param[in]      weight_decay            L2 penalty for weight decay.
+ *  \param[in]      stream                  CUDA stream used for this operation.
+ */
+void nvte_multi_tensor_ademamix_cuda(int chunk_size, NVTETensor noop_flag, NVTETensor **tensor_lists,
+                                 const size_t num_tensor_lists, const size_t num_tensors_per_list,
+                                 const float lr, const float beta1, const float beta2, const float beta3,
+                                 const float alpha, const int normalize_alpha,
+                                 const float epsilon, const int step,
+                                 const int bias_correction, const float weight_decay,
+                                 cudaStream_t stream);
+
+/*!  \brief Compute and apply gradient update to parameters for Ademamix optimizer
+ *          where the master parameters only store the remainder bits.
+ *
+ * \warning   This API is **experimental** and subject to change.
+ *
+ *  \param[in]      chunk_size              Number of tensor elements processed by a CUDA block.
+ *  \param[in]      noop_flag               If this single element tensor has non-zero value, kernel will exit immediately.
+ *  \param[in,out]  tensor_lists            2D array of input tensors.
+ *  \param[in]      num_tensor_lists        Size (dim0) of tensor_lists.
+ *  \param[in]      num_tensors_per_list    Size (dim1) of tensor_lists.
+ *  \param[in]      lr                      Learning rate.
+ *  \param[in]      beta1                   Coefficient for first moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta3                   Coefficient for first slow moment of gradient.
+ *  \param[in]      alpha                   Coefficient for slow moment update.
+ *  \param[in]      normalize_alpha         Whether to normalize by (1+alpha).
+ *  \param[in]      epsilon                 Term added to the denominator for numerical stability.
+ *  \param[in]      step                    Iteration counter.
+ *  \param[in]      bias_correction         Whether to apply correction factor for moment estimates.
+ *  \param[in]      weight_decay            L2 penalty for weight decay.
+ *  \param[in]      stream                  CUDA stream used for this operation.
+ */
+void nvte_multi_tensor_ademamix_param_remainder_cuda(
+    int chunk_size, NVTETensor noop_flag, NVTETensor **tensor_lists, const size_t num_tensor_lists,
+    const size_t num_tensors_per_list, const float lr, const float beta1, const float beta2, const float beta3,
+    const float alpha, const int normalize_alpha,
+    const float epsilon, const int step, const int bias_correction,
+    const float weight_decay, cudaStream_t stream);
+
+/*!  \brief Compute and apply gradient update to parameters for Ademamix optimizer
+ *          when model parameters are in Float8 precision.
+ *
+ * \warning   This API is **experimental** and subject to change.
+ *
+ *  \param[in]      chunk_size              Number of tensor elements processed by a CUDA block.
+ *  \param[in]      noop_flag               If this single element tensor has non-zero value, kernel will exit immediately.
+ *  \param[in,out]  tensor_lists            2D array of input tensors.
+ *  \param[in]      num_tensor_lists        Size (dim0) of tensor_lists.
+ *  \param[in]      num_tensors_per_list    Size (dim1) of tensor_lists.
+ *  \param[in]      lr                      Learning rate.
+ *  \param[in]      beta1                   Coefficient for first moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta3                   Coefficient for first slow moment of gradient.
+ *  \param[in]      alpha                   Coefficient for slow moment update.
+ *  \param[in]      normalize_alpha         Whether to normalize by (1+alpha).
+ *  \param[in]      epsilon                 Term added to the denominator for numerical stability.
+ *  \param[in]      step                    Iteration counter.
+ *  \param[in]      bias_correction         Whether to apply correction factor for moment estimates.
+ *  \param[in]      weight_decay            L2 penalty for weight decay.
+ *  \param[in]      fp8_dtype               FP8 data type for model parameters.
+ *  \param[in]      stream                  CUDA stream used for this operation.
+ */
+void nvte_multi_tensor_ademamix_fp8_cuda(int chunk_size, NVTETensor noop_flag,
+                                     NVTETensor **tensor_lists, const size_t num_tensor_lists,
+                                     const size_t num_tensors_per_list, const float lr,
+                                     const float beta1, const float beta2, const float beta3, 
+                                     const float alpha, const int normalize_alpha,
+                                     const float epsilon, const int step, const int bias_correction,
+                                     const float weight_decay, const NVTEDType fp8_dtype,
+                                     cudaStream_t stream);
+
+/*!  \brief Compute and apply gradient update to parameters for Ademamix optimizer
+ *          with CUDA graph support and LR scheduling.
+ *
+ * \warning   This API is **experimental** and subject to change.
+ *
+ *  \param[in]      chunk_size              Number of tensor elements processed by a CUDA block.
+ *  \param[in]      noop_flag               If this single element tensor has non-zero value, kernel will exit immediately.
+ *  \param[in,out]  tensor_lists            2D array of input tensors.
+ *  \param[in]      num_tensor_lists        Size (dim0) of tensor_lists.
+ *  \param[in]      num_tensors_per_list    Size (dim1) of tensor_lists.
+ *  \param[in]      lr                      Learning rate.
+ *  \param[in]      beta1                   Coefficient for first moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta3                   Coefficient for first slow moment of gradient.
+ *  \param[in]      alpha                   Coefficient for slow moment update.
+ *  \param[in]      normalize_alpha         Whether to normalize by (1+alpha).
+ *  \param[in]      epsilon                 Term added to the denominator for numerical stability.
+ *  \param[in]      step                    Iteration counter.
+ *  \param[in]      bias_correction         Whether to apply correction factor for moment estimates.
+ *  \param[in]      weight_decay            L2 penalty for weight decay.
+ *  \param[in]      inv_scale               Scalar for the unscaling operation.
+ *  \param[in]      stream                  CUDA stream used for this operation.
+ */
+void nvte_multi_tensor_ademamix_capturable_cuda(
+    int chunk_size, NVTETensor noop_flag, NVTETensor **tensor_lists, const size_t num_tensor_lists,
+    const size_t num_tensors_per_list, NVTETensor lr, const float beta1, const float beta2, const float beta3,
+    const float alpha, const int normalize_alpha,const float epsilon, NVTETensor step, const int bias_correction,
+    const float weight_decay, NVTETensor inv_scale, cudaStream_t stream);
+
+/*!  \brief Compute and apply gradient update to parameters for Ademamix optimizer
+ *          with CUDA graph support, LR scheduling, and FP32 master weights.
+ *
+ * \warning   This API is **experimental** and subject to change.
+ *
+ *  \param[in]      chunk_size              Number of tensor elements processed by a CUDA block.
+ *  \param[in]      noop_flag               If this single element tensor has non-zero value, kernel will exit immediately.
+ *  \param[in,out]  tensor_lists            2D array of input tensors.
+ *  \param[in]      num_tensor_lists        Size (dim0) of tensor_lists.
+ *  \param[in]      num_tensors_per_list    Size (dim1) of tensor_lists.
+ *  \param[in]      lr                      Learning rate.
+ *  \param[in]      beta1                   Coefficient for first moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta2                   Coefficient for second moment of gradient.
+ *  \param[in]      beta3                   Coefficient for first slow moment of gradient.
+ *  \param[in]      alpha                   Coefficient for slow moment update.
+ *  \param[in]      normalize_alpha         Whether to normalize by (1+alpha).
+ *  \param[in]      epsilon                 Term added to the denominator for numerical stability.
+ *  \param[in]      step                    Iteration counter.
+ *  \param[in]      bias_correction         Whether to apply correction factor for moment estimates.
+ *  \param[in]      weight_decay            L2 penalty for weight decay.
+ *  \param[in]      inv_scale               Scalar for the unscaling operation.
+ *  \param[in]      stream                  CUDA stream used for this operation.
+ */
+void nvte_multi_tensor_ademamix_capturable_master_cuda(
+    int chunk_size, NVTETensor noop_flag, NVTETensor **tensor_lists, const size_t num_tensor_lists,
+    const size_t num_tensors_per_list, NVTETensor lr, const float beta1, const float beta2, const float beta3,
+    const float alpha, const int normalize_alpha, const float epsilon, NVTETensor step, const int bias_correction,
+    const float weight_decay, NVTETensor inv_scale, cudaStream_t stream);
+
 /*!  \brief Compute and apply gradient update to parameters for SGD optimizer.
  *
  * \warning   This API is **experimental** and subject to change.
