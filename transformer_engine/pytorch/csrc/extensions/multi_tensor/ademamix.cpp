@@ -8,53 +8,57 @@
 
 namespace transformer_engine::pytorch {
 
-void multi_tensor_adam_cuda(int chunk_size, at::Tensor noop_flag,
+void multi_tensor_ademamix_cuda(int chunk_size, at::Tensor noop_flag,
                             std::vector<std::vector<at::Tensor>> tensor_lists, const float lr,
-                            const float beta1, const float beta2, const float epsilon,
-                            const int step, const int mode, const int bias_correction,
+                            const float beta1, const float beta2, const float beta3,
+                            const float alpha, const int normalize_alpha,
+                            const float epsilon, const int step, const int bias_correction,
                             const float weight_decay) {
   auto noop_flag_cu = makeTransformerEngineTensor(noop_flag);
   auto [_, __, tensor_lists_ptr, num_lists, num_tensors] =
       makeTransformerEngineTensorList(tensor_lists);
 
-  nvte_multi_tensor_adam_cuda(chunk_size, noop_flag_cu.data(), tensor_lists_ptr.data(), num_lists,
-                              num_tensors, lr, beta1, beta2, epsilon, step, mode, bias_correction,
+  nvte_multi_tensor_ademamix_cuda(chunk_size, noop_flag_cu.data(), tensor_lists_ptr.data(), num_lists,
+                              num_tensors, lr, beta1, beta2, beta3, alpha, normalize_alpha, epsilon, step, bias_correction,
                               weight_decay, at::cuda::getCurrentCUDAStream());
 }
 
-void multi_tensor_adam_param_remainder_cuda(int chunk_size, at::Tensor noop_flag,
+void multi_tensor_ademamix_param_remainder_cuda(int chunk_size, at::Tensor noop_flag,
                                             std::vector<std::vector<at::Tensor>> tensor_lists,
-                                            const float lr, const float beta1, const float beta2,
-                                            const float epsilon, const int step, const int mode,
+                                            const float lr, const float beta1, const float beta2, const float beta3,
+                                            const float alpha, const int normalize_alpha,
+                                            const float epsilon, const int step,
                                             const int bias_correction, const float weight_decay) {
   auto noop_flag_cu = makeTransformerEngineTensor(noop_flag);
   auto [_, __, tensor_lists_ptr, num_lists, num_tensors] =
       makeTransformerEngineTensorList(tensor_lists);
 
-  nvte_multi_tensor_adam_param_remainder_cuda(
+  nvte_multi_tensor_ademamix_param_remainder_cuda(
       chunk_size, noop_flag_cu.data(), tensor_lists_ptr.data(), num_lists, num_tensors, lr, beta1,
-      beta2, epsilon, step, mode, bias_correction, weight_decay, at::cuda::getCurrentCUDAStream());
+      beta2, beta3, alpha, normalize_alpha, epsilon, step, bias_correction, weight_decay, at::cuda::getCurrentCUDAStream());
 }
 
-void multi_tensor_adam_fp8_cuda(int chunk_size, at::Tensor noop_flag,
+void multi_tensor_ademamix_fp8_cuda(int chunk_size, at::Tensor noop_flag,
                                 std::vector<std::vector<at::Tensor>> tensor_lists, const float lr,
-                                const float beta1, const float beta2, const float epsilon,
-                                const int step, const int mode, const int bias_correction,
+                                const float beta1, const float beta2, const float beta3,
+                                const float alpha, const int normalize_alpha,
+                                const float epsilon, const int step, const int bias_correction,
                                 const float weight_decay, DType fp8_dtype) {
   auto noop_flag_cu = makeTransformerEngineTensor(noop_flag);
   auto [_, __, tensor_lists_ptr, num_lists, num_tensors] =
       makeTransformerEngineTensorList(tensor_lists);
 
-  nvte_multi_tensor_adam_fp8_cuda(chunk_size, noop_flag_cu.data(), tensor_lists_ptr.data(),
-                                  num_lists, num_tensors, lr, beta1, beta2, epsilon, step, mode,
+  nvte_multi_tensor_ademamix_fp8_cuda(chunk_size, noop_flag_cu.data(), tensor_lists_ptr.data(),
+                                  num_lists, num_tensors, lr, beta1, beta2, beta3, alpha, normalize_alpha, epsilon, step,
                                   bias_correction, weight_decay, static_cast<NVTEDType>(fp8_dtype),
                                   at::cuda::getCurrentCUDAStream());
 }
 
-void multi_tensor_adam_capturable_cuda(int chunk_size, at::Tensor noop_flag,
+void multi_tensor_ademamix_capturable_cuda(int chunk_size, at::Tensor noop_flag,
                                        std::vector<std::vector<at::Tensor>> tensor_lists,
-                                       at::Tensor lr, const float beta1, const float beta2,
-                                       const float epsilon, at::Tensor step, const int mode,
+                                       at::Tensor lr, const float beta1, const float beta2, const float beta3,
+                                       const float alpha, const int normalize_alpha,
+                                       const float epsilon, at::Tensor step,
                                        const int bias_correction, const float weight_decay,
                                        at::Tensor inv_scale) {
   auto noop_flag_cu = makeTransformerEngineTensor(noop_flag);
@@ -64,16 +68,17 @@ void multi_tensor_adam_capturable_cuda(int chunk_size, at::Tensor noop_flag,
   auto step_cu = makeTransformerEngineTensor(step);
   auto inv_scale_cu = makeTransformerEngineTensor(inv_scale);
 
-  nvte_multi_tensor_adam_capturable_cuda(
+  nvte_multi_tensor_ademamix_capturable_cuda(
       chunk_size, noop_flag_cu.data(), tensor_lists_ptr.data(), num_lists, num_tensors,
-      lr_cu.data(), beta1, beta2, epsilon, step_cu.data(), mode, bias_correction, weight_decay,
+      lr_cu.data(), beta1, beta2, beta3, alpha, normalize_alpha, epsilon, step_cu.data(), bias_correction, weight_decay,
       inv_scale_cu.data(), at::cuda::getCurrentCUDAStream());
 }
 
-void multi_tensor_adam_capturable_master_cuda(int chunk_size, at::Tensor noop_flag,
+void multi_tensor_ademamix_capturable_master_cuda(int chunk_size, at::Tensor noop_flag,
                                               std::vector<std::vector<at::Tensor>> tensor_lists,
-                                              at::Tensor lr, const float beta1, const float beta2,
-                                              const float epsilon, at::Tensor step, const int mode,
+                                              at::Tensor lr, const float beta1, const float beta2, const float beta3,
+                                              const float alpha, const int normalize_alpha,
+                                              const float epsilon, at::Tensor step,
                                               const int bias_correction, const float weight_decay,
                                               at::Tensor inv_scale) {
   auto noop_flag_cu = makeTransformerEngineTensor(noop_flag);
@@ -83,9 +88,9 @@ void multi_tensor_adam_capturable_master_cuda(int chunk_size, at::Tensor noop_fl
   auto step_cu = makeTransformerEngineTensor(step);
   auto inv_scale_cu = makeTransformerEngineTensor(inv_scale);
 
-  nvte_multi_tensor_adam_capturable_master_cuda(
+  nvte_multi_tensor_ademamix_capturable_master_cuda(
       chunk_size, noop_flag_cu.data(), tensor_lists_ptr.data(), num_lists, num_tensors,
-      lr_cu.data(), beta1, beta2, epsilon, step_cu.data(), mode, bias_correction, weight_decay,
+      lr_cu.data(), beta1, beta2, beta3, alpha, normalize_alpha, epsilon, step_cu.data(), bias_correction, weight_decay,
       inv_scale_cu.data(), at::cuda::getCurrentCUDAStream());
 }
 
