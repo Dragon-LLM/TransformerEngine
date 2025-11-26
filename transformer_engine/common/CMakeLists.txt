@@ -125,6 +125,7 @@ list(APPEND transformer_engine_cpp_sources
 list(APPEND transformer_engine_cuda_sources
      common.cu
      multi_tensor/adam.cu
+     multi_tensor/ademamix.cu
      multi_tensor/compute_scale.cu
      multi_tensor/l2norm.cu
      multi_tensor/scale.cu
@@ -324,6 +325,7 @@ list(APPEND nvte_sources_with_fast_math fused_softmax/scaled_masked_softmax.cu
                                         fused_softmax/scaled_upper_triang_masked_softmax.cu
                                         fused_softmax/scaled_aligned_causal_masked_softmax.cu
                                         multi_tensor/adam.cu
+                                        multi_tensor/ademamix.cu
                                         multi_tensor/compute_scale.cu
                                         multi_tensor/l2norm.cu
                                         multi_tensor/scale.cu
