@@ -2,7 +2,7 @@
 #
 # See LICENSE for license information.
 
-"""Fused Adam optimizer."""
+"""Fused Ademamix optimizer."""
 from __future__ import annotations
 from collections.abc import Iterable
 from copy import deepcopy
@@ -30,44 +30,42 @@ def get_fp8_meta(fp8_tensor):
     return scale, amax, scale_inv
 
 
-class FusedAdam(torch.optim.Optimizer):
-    """Implements Adam algorithm.
+class FusedAdemamix(torch.optim.Optimizer):
+    """Implements Ademamix algorithm.
 
     Currently GPU-only.
 
-    This version of fused Adam implements 2 fusions.
+    This version of fused Ademamix implements 2 fusions.
 
-      * Fusion of the Adam update's elementwise operations
+      * Fusion of the Ademamix update's elementwise operations
       * A multi-tensor apply launch that batches the elementwise updates applied to
         all the model's parameters into one or a few kernel launches.
 
-    :class:`te.optimizers.FusedAdam` may be used as a drop-in replacement for ``torch.optim.AdamW``,
-    or ``torch.optim.Adam`` with ``adam_w_mode=False``::
-
-        opt = te.optimizers.FusedAdam(model.parameters(), lr = ....)
+    Example:
+        opt = te.optimizers.FusedAdemamix(model.parameters(), lr = ....)
         ...
         opt.step()
 
-    :class:`te.optimizers.FusedAdam` may be used with or without Amp.
+    :class:`te.optimizers.FusedAdemamix` may be used with or without Amp.
 
-    Adam was been proposed in `Adam: A Method for Stochastic Optimization`_.
+    Ademaix has been proposed in `The AdEMAMix Optimizer: Better, Faster, Older` (https://arxiv.org/abs/2409.03137).
 
     Arguments:
         params (iterable): iterable of parameters to optimize or dicts defining
             parameter groups.
         lr (float, optional): learning rate. (default: 1e-3)
-        betas (Tuple[float, float], optional): coefficients used for computing
-            running averages of gradient and its square. (default: (0.9, 0.999))
+        betas (Tuple[float, float, float], optional): coefficients used for computing
+            running averages of gradient (fast and slow) and its square. (default: (0.9, 0.999, 0.9999))
+        alpha (float, optional): EMA factor for the slow moving average. (default: 8.0)
+        normalize_alpha (bool, optional): whether to normalize updates alpha by (1 + alpha). (default: True)
         eps (float, optional): term added to the denominator to improve
             numerical stability. (default: 1e-8)
         weight_decay (float, optional): weight decay (L2 penalty) (default: 0)
         amsgrad (boolean, optional): whether to use the AMSGrad variant of this
             algorithm from the paper `On the Convergence of Adam and Beyond`_
-            (default: False) NOT SUPPORTED in FusedAdam!
+            (default: False) NOT SUPPORTED in FusedAdam and FusedAdemamix!
         bias_correction (bool, optional): apply correction factor to
             moment estimates. (default: True)
-        adam_w_mode (boolean, optional): Apply L2 regularization or weight decay
-            True for decoupled weight decay(also known as AdamW) (default: True)
         capturable (bool, optional): whether to use the version of the optimizer
             that can be used with CUDA Graphs. (default: False)
         master_weights (bool, optional): whether to maintain FP32 master weights
@@ -98,25 +96,20 @@ class FusedAdam(torch.optim.Optimizer):
             when param type is BF16 and master weight type is FP32, no effect otherwise.
             Useful memory saving optimization.
             (default: False)
-
-
-    .. _Adam - A Method for Stochastic Optimization:
-        https://arxiv.org/abs/1412.6980
-    .. _On the Convergence of Adam and Beyond:
-        https://openreview.net/forum?id=ryQu7f-RZ
     """
 
     def __init__(
         self,
         params: Iterable[torch.nn.Parameter | dict],
         lr: float = 1e-3,
-        betas: tuple[float, float] = (0.9, 0.999),
+        betas: tuple[float, float, float] = (0.9, 0.999, 0.9999),
+        alpha: float = 8.0,
+        normalize_alpha: bool = True,
         eps: float = 1e-8,
         weight_decay: float = 0.0,
         amsgrad: bool = False,
         *,
         bias_correction=True,
-        adam_w_mode=True,
         capturable=False,
         master_weights=False,
         master_weight_dtype=torch.float32,
@@ -128,15 +121,15 @@ class FusedAdam(torch.optim.Optimizer):
     ):
 
         if amsgrad:
-            raise RuntimeError("FusedAdam does not support the AMSGrad variant.")
+            raise RuntimeError("FusedAdemamix does not support the AMSGrad variant.")
 
         # Add constraints to dtypes of states.
         if master_weights and master_weight_dtype not in [torch.float32, torch.float16]:
-            raise RuntimeError("FusedAdam only supports fp32/fp16 master weights.")
+            raise RuntimeError("FusedAdemamix only supports fp32/fp16 master weights.")
         if exp_avg_dtype not in [torch.float32, torch.float16, torch.bfloat16, torch.uint8]:
-            raise RuntimeError("FusedAdam only supports fp32/fp16/bf16/fp8 exp_avg.")
+            raise RuntimeError("FusedAdemamix only supports fp32/fp16/bf16/fp8 exp_avg.")
         if exp_avg_sq_dtype not in [torch.float32, torch.float16, torch.bfloat16, torch.uint8]:
-            raise RuntimeError("FusedAdam only supports fp32/fp16/bf16/fp8 exp_avg_sq.")
+            raise RuntimeError("FusedAdemamix only supports fp32/fp16/bf16/fp8 exp_avg_sq.")
 
         # Currently, capturable mode only supports fp32 master weights and optimizer states.
         # The reason is, if the master weights or optimizer states are not in fp32 dtype,
@@ -158,11 +151,12 @@ class FusedAdam(torch.optim.Optimizer):
             "lr": lr,
             "bias_correction": bias_correction,
             "betas": betas,
+            "alpha": alpha,
             "eps": eps,
             "weight_decay": weight_decay,
         }
         super().__init__(params, defaults)
-        self.adam_w_mode = 1 if adam_w_mode else 0
+        self.normalize_alpha = normalize_alpha
 
         self.capturable = capturable
         self.master_weights = master_weights
@@ -179,17 +173,17 @@ class FusedAdam(torch.optim.Optimizer):
 
         # Skip buffer
         self._dummy_overflow_buf = torch.tensor([0], dtype=torch.int, device="cuda")
-        self.multi_tensor_adam = tex.multi_tensor_adam
-        self.multi_tensor_adam_param_remainder = tex.multi_tensor_adam_param_remainder
-        self.multi_tensor_adam_fp8 = tex.multi_tensor_adam_fp8
-        self.multi_tensor_adam_capturable = tex.multi_tensor_adam_capturable
-        self.multi_tensor_adam_capturable_master = tex.multi_tensor_adam_capturable_master
-
+        self.multi_tensor_ademamix = tex.multi_tensor_ademamix
+        self.multi_tensor_ademamix_param_remainder = tex.multi_tensor_ademamix_param_remainder
+        self.multi_tensor_ademamix_fp8 = tex.multi_tensor_ademamix_fp8
+        self.multi_tensor_ademamix_capturable = tex.multi_tensor_ademamix_capturable
+        self.multi_tensor_ademamix_capturable_master = tex.multi_tensor_ademamix_capturable_master
         self.master_weight_dtype = master_weight_dtype
         self.exp_avg_dtype = exp_avg_dtype
         self.exp_avg_sq_dtype = exp_avg_sq_dtype
         self.name_to_dtype_map = {
             "exp_avg": self.exp_avg_dtype,
+            "exp_avg_slow": self.exp_avg_dtype,
             "exp_avg_sq": self.exp_avg_sq_dtype,
             "master_param": self.master_weight_dtype,
         }
@@ -210,7 +204,7 @@ class FusedAdam(torch.optim.Optimizer):
         self.set_grad_none = set_grad_none
         if self.set_grad_none is not None:
             warnings.warn(
-                "set_grad_none kwarg in FusedAdam constructor is deprecated. "
+                "set_grad_none kwarg in FusedAdemamix constructor is deprecated. "
                 "Use set_to_none kwarg in zero_grad instead.",
                 DeprecationWarning,
             )
@@ -229,7 +223,7 @@ class FusedAdam(torch.optim.Optimizer):
             if set_to_none is not None and set_to_none != self.set_grad_none:
                 raise ValueError(
                     f"Called zero_grad with set_to_none={set_to_none}, "
-                    f"but FusedAdam was initialized with set_grad_none={self.set_grad_none}"
+                    f"but FusedAdemamix was initialized with set_grad_none={self.set_grad_none}"
                 )
             set_to_none = self.set_grad_none
         if set_to_none is None:
@@ -268,7 +262,7 @@ class FusedAdam(torch.optim.Optimizer):
             assert isinstance(scaled_state, Float8Tensor)
             assert len(scaled_state._quantizer.scale) == 1, (
                 "Only scaling with one scaling factor                per tensor is supported by the"
-                " FusedAdam."
+                " FusedAdemamix."
             )
         else:
             assert scaled_state.dtype == dtype
@@ -406,6 +400,7 @@ class FusedAdam(torch.optim.Optimizer):
             store_param_remainders (bool): Store trailing remainder bits.
         """
         self._initialize_state(param, "exp_avg", zero_buffer=True)
+        self._initialize_state(param, "exp_avg_slow", zero_buffer=True)
         self._initialize_state(param, "exp_avg_sq", zero_buffer=True)
         if self.master_weights:
             self._initialize_state(
@@ -490,7 +485,8 @@ class FusedAdam(torch.optim.Optimizer):
                 continue
             device = group["params"][0].device
             bias_correction = 1 if group["bias_correction"] else 0
-            beta1, beta2 = group["betas"]
+            beta1, beta2, beta3 = group["betas"]
+            alpha = group["alpha"]
 
             # assume same step across group now to simplify things
             # per parameter step can be easily support by making it tensor, or pass list into kernel
@@ -512,6 +508,9 @@ class FusedAdam(torch.optim.Optimizer):
             m_of_fp8_model = []
             m_of_f16_model = []
             m_of_f32_model = []
+            m_slow_of_fp8_model = []
+            m_slow_of_f16_model = []
+            m_slow_of_f32_model = []
             v_of_fp8_model = []
             v_of_f16_model = []
             v_of_f32_model = []
@@ -524,9 +523,9 @@ class FusedAdam(torch.optim.Optimizer):
             scale_invs = []
 
             # Lists for scaling
-            unscaled_lists = {"exp_avg": [], "exp_avg_sq": [], "master_param": []}
-            scaled_lists = {"exp_avg": [], "exp_avg_sq": [], "master_param": []}
-            state_scales = {"exp_avg": [], "exp_avg_sq": [], "master_param": []}
+            unscaled_lists = {"exp_avg": [], "exp_avg_slow": [], "exp_avg_sq": [], "master_param": []}
+            scaled_lists = {"exp_avg": [], "exp_avg_slow": [], "exp_avg_sq": [], "master_param": []}
+            state_scales = {"exp_avg": [], "exp_avg_slow": [], "exp_avg_sq": [], "master_param": []}
 
             # Only used when extra params include fp8 tensors. Otherwise, it doesn't matter what the out_dtype is.
             out_dtype = tex.DType.kFloat32
@@ -551,11 +550,11 @@ class FusedAdam(torch.optim.Optimizer):
                 if p_grad is None:
                     continue
                 if p_grad.data.is_sparse:
-                    raise RuntimeError("FusedAdam does not support sparse gradients.")
+                    raise RuntimeError("FusedAdemamix does not support sparse gradients.")
 
                 # Unscaling
                 unscaled_state = {}
-                for name in ["exp_avg", "exp_avg_sq", "master_param"]:
+                for name in ["exp_avg", "exp_avg_slow", "exp_avg_sq", "master_param"]:
                     if name in state:
                         if name == "master_param" and store_param_remainders:
                             unscaled_state[name] = self.state[p][name]
@@ -579,6 +578,7 @@ class FusedAdam(torch.optim.Optimizer):
                         p_main_of_fp8_model.append(unscaled_state["master_param"].data)
                     g_of_fp8_model.append(p_grad.data)
                     m_of_fp8_model.append(unscaled_state["exp_avg"])
+                    m_slow_of_fp8_model.append(unscaled_state["exp_avg_slow"])
                     v_of_fp8_model.append(unscaled_state["exp_avg_sq"])
                 elif p.dtype in [torch.float16, torch.bfloat16]:
                     has_fp16 = has_fp16 or p.dtype == torch.float16
@@ -588,35 +588,37 @@ class FusedAdam(torch.optim.Optimizer):
                         p_main_of_f16_model.append(unscaled_state["master_param"].data)
                     g_of_f16_model.append(p_grad.data)
                     m_of_f16_model.append(unscaled_state["exp_avg"])
+                    m_slow_of_f16_model.append(unscaled_state["exp_avg_slow"])
                     v_of_f16_model.append(unscaled_state["exp_avg_sq"])
                 elif p.dtype == torch.float32:
                     p_f32_model.append(p.data)
                     g_of_f32_model.append(p_grad.data)
                     m_of_f32_model.append(unscaled_state["exp_avg"])
+                    m_slow_of_f32_model.append(unscaled_state["exp_avg_slow"])
                     v_of_f32_model.append(unscaled_state["exp_avg_sq"])
                 else:
                     raise RuntimeError(
-                        "FusedAdam only support model weights in fp32, fp16, bf16 and fp8"
+                        "FusedAdemamix only support model weights in fp32, fp16, bf16 and fp8"
                     )
 
                 if self.capturable and len(p_fp8_model) > 0:
                     raise RuntimeError(
-                        "FusedAdam does not support FP8 model weights with capturable=True."
+                        "FusedAdemamix does not support FP8 model weights with capturable=True."
                     )
 
                 if has_fp16 and has_bf16:
                     if self.store_param_remainders:
                         raise RuntimeError(
-                            "FusedAdam doesn't support a mix of FP16/BF16 weights + Store param"
+                            "FusedAdemamix doesn't support a mix of FP16/BF16 weights + Store param"
                             " remainder."
                         )
 
                     # simple to add support for this, but not needed for now
                     raise RuntimeError(
-                        "FusedAdam does not support a mix of float16 and bfloat16 model weights."
+                        "FusedAdemamix does not support a mix of float16 and bfloat16 model weights."
                     )
 
-            def apply_multi_tensor_adam(adam_func, tensor_lists, inv_scale=None, out_dtype=None):
+            def apply_multi_tensor_ademamix(ademamix_func, tensor_lists, inv_scale=None, out_dtype=None):
                 # Closures defined in a loop can have unexpected
                 # behavior when called outside the loop. However, this
                 # function is called in the same loop iteration as it
@@ -625,15 +627,17 @@ class FusedAdam(torch.optim.Optimizer):
                 inv_scale_arg = () if inv_scale is None else (inv_scale,)
                 out_dtype_arg = () if out_dtype is None else (out_dtype,)
                 multi_tensor_applier(
-                    adam_func,
+                    ademamix_func,
                     self._dummy_overflow_buf,
                     tensor_lists,
                     group["lr"],
                     beta1,
                     beta2,
+                    beta3,
+                    alpha,
+                    self.normalize_alpha,
                     group["eps"],
                     group["step"],
-                    self.adam_w_mode,
                     bias_correction,
                     group["weight_decay"],
                     *inv_scale_arg,
@@ -667,32 +671,34 @@ class FusedAdam(torch.optim.Optimizer):
                             g_of_f16_model,
                             p_f16_model,
                             m_of_f16_model,
+                            m_slow_of_f16_model,
                             v_of_f16_model,
                             p_main_of_f16_model,
                         ]
-                        apply_multi_tensor_adam(
-                            self.multi_tensor_adam_capturable_master, tensor_lists, inv_scale
+                        apply_multi_tensor_ademamix(
+                            self.multi_tensor_ademamix_capturable_master, tensor_lists, inv_scale
                         )
                     if len(p_f32_model) > 0:
                         tensor_lists = [
                             g_of_f32_model,
                             p_f32_model,
                             m_of_f32_model,
+                            m_slow_of_f32_model,
                             v_of_f32_model,
                         ]
-                        apply_multi_tensor_adam(
-                            self.multi_tensor_adam_capturable, tensor_lists, inv_scale
+                        apply_multi_tensor_ademamix(
+                            self.multi_tensor_ademamix_capturable, tensor_lists, inv_scale
                         )
                 else:
                     if len(p_f16_model) > 0:
-                        tensor_lists = [g_of_f16_model, p_f16_model, m_of_f16_model, v_of_f16_model]
-                        apply_multi_tensor_adam(
-                            self.multi_tensor_adam_capturable, tensor_lists, inv_scale
+                        tensor_lists = [g_of_f16_model, p_f16_model, m_of_f16_model, m_slow_of_f16_model,v_of_f16_model]
+                        apply_multi_tensor_ademamix(
+                            self.multi_tensor_ademamix_capturable, tensor_lists, inv_scale
                         )
                     if len(p_f32_model) > 0:
-                        tensor_lists = [g_of_f32_model, p_f32_model, m_of_f32_model, v_of_f32_model]
-                        apply_multi_tensor_adam(
-                            self.multi_tensor_adam_capturable, tensor_lists, inv_scale
+                        tensor_lists = [g_of_f32_model, p_f32_model, m_of_f32_model, m_slow_of_f32_model, v_of_f32_model]
+                        apply_multi_tensor_ademamix(
+                            self.multi_tensor_ademamix_capturable, tensor_lists, inv_scale
                         )
 
             elif self.master_weights:  # and self.capturable=False
@@ -701,47 +707,50 @@ class FusedAdam(torch.optim.Optimizer):
                         g_of_f16_model,
                         p_f16_model,
                         m_of_f16_model,
+                        m_slow_of_f16_model,
                         v_of_f16_model,
                         p_main_of_f16_model,
                     ]
                     if self.store_param_remainders and has_bf16 and not has_fp16:
                         # When you have BF16 params and need FP32 master params, you can reconstruct
                         # the FP32 master params with BF16 params + int16 remainders
-                        apply_multi_tensor_adam(
-                            self.multi_tensor_adam_param_remainder, tensor_lists
+                        apply_multi_tensor_ademamix(
+                            self.multi_tensor_ademamix_param_remainder, tensor_lists
                         )
                     else:
-                        apply_multi_tensor_adam(self.multi_tensor_adam, tensor_lists)
+                        apply_multi_tensor_ademamix(self.multi_tensor_ademamix, tensor_lists)
                 if len(p_fp8_model) > 0:
                     tensor_lists = [
                         g_of_fp8_model,
                         p_fp8_model,
                         m_of_fp8_model,
+                        m_slow_of_fp8_model,
                         v_of_fp8_model,
                         p_main_of_fp8_model,
                         scales,
                         amaxes,
                         scale_invs,
                     ]
-                    apply_multi_tensor_adam(self.multi_tensor_adam_fp8, tensor_lists, out_dtype)
+                    apply_multi_tensor_ademamix(self.multi_tensor_ademamix_fp8, tensor_lists, out_dtype)
                 if len(p_f32_model) > 0:
                     tensor_lists = [
                         g_of_f32_model,
                         p_f32_model,
                         m_of_f32_model,
+                        m_slow_of_f32_model,
                         v_of_f32_model,
                     ]
-                    apply_multi_tensor_adam(self.multi_tensor_adam, tensor_lists)
+                    apply_multi_tensor_ademamix(self.multi_tensor_ademamix, tensor_lists)
             else:  # self.master_weights=False and self.capturable=False
                 if len(p_f16_model) > 0:
-                    tensor_lists = [g_of_f16_model, p_f16_model, m_of_f16_model, v_of_f16_model]
-                    apply_multi_tensor_adam(self.multi_tensor_adam, tensor_lists)
+                    tensor_lists = [g_of_f16_model, p_f16_model, m_of_f16_model, m_slow_of_f16_model, v_of_f16_model]
+                    apply_multi_tensor_ademamix(self.multi_tensor_ademamix, tensor_lists)
                 if len(p_f32_model) > 0:
-                    tensor_lists = [g_of_f32_model, p_f32_model, m_of_f32_model, v_of_f32_model]
-                    apply_multi_tensor_adam(self.multi_tensor_adam, tensor_lists)
+                    tensor_lists = [g_of_f32_model, p_f32_model, m_of_f32_model, m_slow_of_f32_model, v_of_f32_model]
+                    apply_multi_tensor_ademamix(self.multi_tensor_ademamix, tensor_lists)
 
             # Scaling
-            for name in ["exp_avg", "exp_avg_sq", "master_param"]:
+            for name in ["exp_avg", "exp_avg_slow", "exp_avg_sq", "master_param"]:
                 if len(unscaled_lists[name]) > 0:
                     for unscaled, scaled, scale in zip(
                         unscaled_lists[name], scaled_lists[name], state_scales[name]

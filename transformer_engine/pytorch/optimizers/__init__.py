@@ -14,5 +14,6 @@ from transformer_engine_torch import (
     multi_tensor_sgd,
 )
 from .fused_adam import FusedAdam
+from .fused_ademamix import FusedAdemamix
 from .fused_sgd import FusedSGD
 from .multi_tensor_apply import MultiTensorApply, multi_tensor_applier
