@@ -163,6 +163,7 @@ def general_grouped_gemm(
     layout: str = "TN",
     m_splits: Optional[List[int]] = None,
     gelu: bool = False,
+    alpha: float = 1.0,
     grad=False,
     accumulate: bool = False,
     bias: Optional[List[torch.Tensor]] = None,
@@ -220,6 +221,7 @@ def general_grouped_gemm(
         grad,  # grad
         workspaces,
         workspaces[0].shape[0],
+        alpha,
         accumulate,
         use_split_accumulator,
         sm_count - int(os.getenv("NVTE_EXT_MARGIN_SM", str(sm_count))),

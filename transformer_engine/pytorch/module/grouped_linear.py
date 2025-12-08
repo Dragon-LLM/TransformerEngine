@@ -66,6 +66,8 @@ class _GroupedLinear(torch.autograd.Function):
         m_splits: List[int],
         use_bias: bool,
         is_first_microbatch: Union[bool, None],
+        alpha_fwd: float,
+        alpha_bwd: float,
         fp8: bool,
         fp8_calibration: bool,
         wgrad_store: WeightGradStore,
@@ -177,6 +179,7 @@ class _GroupedLinear(torch.autograd.Function):
             get_multi_stream_cublas_workspace(),
             single_output=True,
             m_splits=m_splits,
+            alpha=alpha_fwd,
             bias=biases,
             use_bias=use_bias,
             use_split_accumulator=use_split_accumulator,
@@ -251,6 +254,7 @@ class _GroupedLinear(torch.autograd.Function):
             ctx.m_splits = m_splits
             ctx.num_gemms = num_gemms
             ctx.activation_dtype = activation_dtype
+            ctx.alpha_bwd = alpha_bwd
             ctx.fp8 = fp8
             ctx.fp8_recipe = FP8GlobalStateManager.get_fp8_recipe() if fp8 else None
             ctx.fuse_wgrad_accumulation = fuse_wgrad_accumulation
@@ -370,6 +374,7 @@ class _GroupedLinear(torch.autograd.Function):
                     single_output=True,
                     layout="NN",
                     m_splits=ctx.m_splits,
+                    alpha=ctx.alpha_bwd,
                     grad=True,
                     use_split_accumulator=dgrad_gemm_use_split_accumulator,
                 )
@@ -416,6 +421,7 @@ class _GroupedLinear(torch.autograd.Function):
                     workspaces=get_multi_stream_cublas_workspace(),
                     layout="NT",
                     grad=True,
+                    alpha=ctx.alpha_bwd,
                     m_splits=ctx.m_splits,
                     use_bias=ctx.use_bias if grad_biases[0] is None else None,
                     bias=biases,
@@ -482,6 +488,8 @@ class _GroupedLinear(torch.autograd.Function):
             FP8GlobalStateManager.reduce_and_update_fp8_tensors(forward=False)
         return (
             dgrad.view(ctx.inp_shape) if ctx.requires_dgrad else None,
+            None,
+            None,
             None,
             None,
             None,
@@ -730,6 +738,8 @@ class GroupedLinear(TransformerEngineBaseModule):
         inp: torch.Tensor,
         m_splits: List[int],
         is_first_microbatch: Optional[bool] = None,
+        alpha_fwd: float = 1.0,
+        alpha_bwd: float = 1.0,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, ...]]:
         """
         Apply the linear transformation to the input.
@@ -809,6 +819,8 @@ class GroupedLinear(TransformerEngineBaseModule):
                 m_splits,
                 self.apply_bias,
                 is_first_microbatch,
+                alpha_fwd,
+                alpha_bwd,
                 self.fp8,
                 self.fp8_calibration,
                 self.wgrad_store,

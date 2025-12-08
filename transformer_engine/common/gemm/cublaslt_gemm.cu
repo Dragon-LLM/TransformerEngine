@@ -777,7 +777,7 @@ void cublas_gemm(const Tensor *inputA, const Tensor *inputB, Tensor *outputD,
 
 void nvte_cublas_gemm(const NVTETensor A, const NVTETensor B, NVTETensor D, const NVTETensor bias,
                       NVTETensor pre_gelu_out, bool transa, bool transb, bool grad,
-                      NVTETensor workspace, bool accumulate, bool use_split_accumulator,
+                      NVTETensor workspace, float alpha, bool accumulate, bool use_split_accumulator,
                       int math_sm_count, cudaStream_t stream) {
   NVTE_API_CALL(nvte_cublas_gemm);
   using namespace transformer_engine;
@@ -791,7 +791,6 @@ void nvte_cublas_gemm(const NVTETensor A, const NVTETensor B, NVTETensor D, cons
   Tensor *wspace = convertNVTETensor(workspace);
 
   // Scales
-  const float alpha = 1;
   const float beta = accumulate ? 1 : 0;
 
   // Check for NVFP4
@@ -896,7 +895,7 @@ void nvte_cublas_gemm_scaled(const NVTETensor A, const NVTETensor B, NVTETensor 
 
 void nvte_cublas_atomic_gemm(const NVTETensor A, const NVTETensor B, NVTETensor D,
                              const NVTETensor bias, NVTETensor pre_gelu_out, bool transa,
-                             bool transb, bool grad, NVTETensor workspace, bool accumulate,
+                             bool transb, bool grad, NVTETensor workspace, float alpha, bool accumulate,
                              bool use_split_accumulator, int math_sm_count, int m_split,
                              int n_split, bool gemm_producer, const NVTETensor counter,
                              cudaStream_t stream) {
@@ -928,7 +927,6 @@ void nvte_cublas_atomic_gemm(const NVTETensor A, const NVTETensor B, NVTETensor 
   const Tensor *inputCounter = convertNVTETensor(counter);
   Tensor *wspace = convertNVTETensor(workspace);
 
-  const void *alpha_ptr = GetScalarOne();
   const void *beta_ptr = accumulate ? GetScalarOne() : GetScalarZero();
 
   NVTE_CHECK(is_delayed_tensor_scaling(inputA->scaling_mode) &&
@@ -936,14 +934,14 @@ void nvte_cublas_atomic_gemm(const NVTETensor A, const NVTETensor B, NVTETensor 
              "Atomic GEMM only supports delayed scaling.");
   cublas_gemm(inputA, inputB, outputD, biasTensor, outputGelu, (transa) ? CUBLAS_OP_T : CUBLAS_OP_N,
               (transb) ? CUBLAS_OP_T : CUBLAS_OP_N, grad, wspace->data.dptr, wspace->data.shape[0],
-              alpha_ptr, beta_ptr, use_split_accumulator, math_sm_count, m_split, n_split,
+              &alpha, beta_ptr, use_split_accumulator, math_sm_count, m_split, n_split,
               gemm_producer, inputCounter, stream);
 #endif
 }
 
 void multi_stream_cublas_gemm(const NVTETensor *A, const NVTETensor *B, NVTETensor *D,
                               const NVTETensor *bias, NVTETensor *pre_gelu_out, const int num_gemms,
-                              bool transa, bool transb, bool grad, NVTETensor *workspace,
+                              bool transa, bool transb, bool grad, NVTETensor *workspace, float alpha,
                               bool accumulate, bool use_split_accumulator, int math_sm_count,
                               cudaStream_t stream) {
   using namespace transformer_engine;
@@ -978,7 +976,6 @@ void multi_stream_cublas_gemm(const NVTETensor *A, const NVTETensor *B, NVTETens
     config.sm_count = math_sm_count;
 
     // Launch GEMM
-    const float alpha = 1.f;
     const float beta = accumulate ? 1.f : 0.f;
     nvte_cublas_gemm_v2(transa, transb, &alpha, A[i], B[i], &beta, D[i], D[i],
                         workspace[i % num_streams], &config,
@@ -1011,7 +1008,9 @@ void nvte_multi_stream_cublas_gemm(const NVTETensor *A, const NVTETensor *B, NVT
       "Please migrate to nvte_multi_tensor_gemm (with CUTLASS Grouped GEMM support when "
       "applicable).");
 
-  multi_stream_cublas_gemm(A, B, D, bias, pre_gelu_out, num_gemms, transa, transb, grad, workspace,
+  const float alpha = 1.0f;
+
+  multi_stream_cublas_gemm(A, B, D, bias, pre_gelu_out, num_gemms, transa, transb, grad, workspace, alpha,
                            accumulate, use_split_accumulator, math_sm_count, stream);
 }
 
@@ -1025,7 +1024,7 @@ void nvte_cublas_handle_init() { auto _ = cublasHandleManager::Instance().GetHan
 
 void nvte_multi_tensor_gemm(const NVTETensor *A, const NVTETensor *B, NVTETensor *D,
                             const NVTETensor *bias, NVTETensor *pre_gelu_out, const int num_gemms,
-                            bool transa, bool transb, bool grad, NVTETensor *workspace,
+                            bool transa, bool transb, bool grad, NVTETensor *workspace, float alpha,
                             bool accumulate, bool use_split_accumulator, int math_sm_count,
                             cudaStream_t stream) {
   NVTE_API_CALL(nvte_multi_tensor_gemm);
@@ -1038,7 +1037,7 @@ void nvte_multi_tensor_gemm(const NVTETensor *A, const NVTETensor *B, NVTETensor
 
   auto cublas_path = [&]() {
     multi_stream_cublas_gemm(A, B, D, bias, pre_gelu_out, num_gemms, transa, transb, grad,
-                             workspace, accumulate, use_split_accumulator, math_sm_count, stream);
+                             workspace, alpha, accumulate, use_split_accumulator, math_sm_count, stream);
   };
 
   // Currently only support cutlass group gemm on Hopper Arch
@@ -1095,8 +1094,8 @@ void nvte_multi_tensor_gemm(const NVTETensor *A, const NVTETensor *B, NVTETensor
   // Otherwise, fall back to cuBLAS.
   if (is_empty_arr(bias) && is_empty_arr(pre_gelu_out) && is_supported_dtype() &&
       all_groups_uniform_k128(B, transb)) {
-    cutlass_grouped_gemm(A, B, D, num_gemms, transa, transb, grad, workspace, accumulate,
-                         current_device, math_sm_count, stream);
+    cutlass_grouped_gemm(A, B, D, num_gemms, transa, transb, grad, workspace, alpha,
+                         accumulate, current_device, math_sm_count, stream);
   } else {
     if (warn_fallback) {
       NVTE_WARN("Fallback to cuBLAS grouped GEMM.");

@@ -147,7 +147,7 @@ std::optional<std::vector<at::Tensor>> te_general_grouped_gemm(
     std::optional<std::vector<at::Tensor>> D, DType D_type, std::vector<int64_t> m_splits,
     std::vector<at::Tensor> bias, DType bias_type, bool single_output,
     std::vector<at::Tensor> pre_gelu_out, bool grad, std::vector<at::Tensor> workspace,
-    size_t workspaceSize, bool accumulate, bool use_split_accumulator, int math_sm_count);
+    size_t workspaceSize, float alpha, bool accumulate, bool use_split_accumulator, int math_sm_count);
 
 /***************************************************************************************************
  * Transpose

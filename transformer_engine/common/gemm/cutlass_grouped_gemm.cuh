@@ -344,5 +344,5 @@ void CutlassGroupedGemm(const NVTETensor* A, const NVTETensor* B, NVTETensor* D,
 }  // namespace transformer_engine
 
 void cutlass_grouped_gemm(const NVTETensor* A, const NVTETensor* B, NVTETensor* D, int num_gemms,
-                          bool transa, bool transb, bool grad, NVTETensor* workspace,
+                          bool transa, bool transb, bool grad, NVTETensor* workspace, float alpha,
                           bool accumulate, int device, int math_sm_count, cudaStream_t stream);

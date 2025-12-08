@@ -91,6 +91,8 @@ class _LayerNormLinear(torch.autograd.Function):
         ln_bias: Union[torch.Tensor, None],
         weight: torch.Tensor,
         bias: torch.Tensor,
+        alpha_fwd: float,
+        alpha_bwd: float,
         eps: float,
         is_first_microbatch: Union[bool, None],
         fp8: bool,
@@ -347,6 +349,7 @@ class _LayerNormLinear(torch.autograd.Function):
             get_workspace(),
             quantization_params=output_quantizer,
             out_dtype=activation_dtype,
+            alpha=alpha_fwd,
             bias=bias,
             use_split_accumulator=use_split_accumulator,
             ub=ub_obj,
@@ -507,6 +510,7 @@ class _LayerNormLinear(torch.autograd.Function):
                     FP8GlobalStateManager.IS_FIRST_FP8_MODULE = _first_fp8_module
             ctx.wgrad_store = wgrad_store
             ctx.debug = debug
+            ctx.alpha_bwd = alpha_bwd
 
         # ------------------------------------------------------
         # Cached state for backward pass is ready...
@@ -723,6 +727,7 @@ class _LayerNormLinear(torch.autograd.Function):
                 quantization_params=ctx.grad_input_quantizer,
                 out=gemm_out,
                 out_dtype=ctx.activation_dtype,
+                alpha=ctx.alpha_bwd,
                 use_split_accumulator=use_split_accumulator,
                 ub=ub_obj_dgrad,
                 ub_type=ub_type_dgrad,
@@ -848,6 +853,7 @@ class _LayerNormLinear(torch.autograd.Function):
                     "out_dtype": (
                         main_grad.dtype if ctx.fuse_wgrad_accumulation else ctx.activation_dtype
                     ),
+                    "alpha": ctx.alpha_bwd,
                     "quantization_params": ctx.grad_weight_quantizer,
                     "accumulate": (
                         accumulate_wgrad_into_param_main_grad
@@ -1012,6 +1018,8 @@ class _LayerNormLinear(torch.autograd.Function):
             dbeta,
             wgrad,
             grad_bias,
+            None,  # alpha_fwd
+            None,  # alpha_bwd
             None,  # eps
             None,  # is_first_microbatch
             None,  # fp8
@@ -1487,6 +1495,8 @@ class LayerNormLinear(TransformerEngineBaseModule):
         is_first_microbatch: Optional[bool] = None,
         fp8_output: Optional[bool] = False,
         fp8_grad: Optional[bool] = False,
+        alpha_fwd: float = 1.0,
+        alpha_bwd: float = 1.0,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, ...]]:
         """
         Apply layer normalization to the input followed by a linear transformation.
@@ -1572,6 +1582,8 @@ class LayerNormLinear(TransformerEngineBaseModule):
                 self.layer_norm_bias,
                 weight_tensor,
                 bias_tensor if self.apply_bias and not self.gemm_bias_unfused_add else None,
+                alpha_fwd,
+                alpha_bwd,
                 self.eps,
                 is_first_microbatch,
                 self.fp8,

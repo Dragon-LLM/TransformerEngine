@@ -108,7 +108,7 @@ void nvte_destroy_matmul_config(NVTEMatmulConfig config);
  */
 void nvte_cublas_gemm(const NVTETensor A, const NVTETensor B, NVTETensor D, const NVTETensor bias,
                       NVTETensor pre_gelu_out, bool transa, bool transb, bool grad,
-                      NVTETensor workspace, bool accumulate, bool use_split_accumulator,
+                      NVTETensor workspace, float alpha, bool accumulate, bool use_split_accumulator,
                       int math_sm_count, cudaStream_t stream);
 
 /*! \brief Compute matrix multiplication of 2 matrices, potentially fused with other operations.
@@ -194,7 +194,7 @@ void nvte_cublas_gemm_scaled(const NVTETensor A, const NVTETensor B, NVTETensor 
  */
 void nvte_cublas_atomic_gemm(const NVTETensor A, const NVTETensor B, NVTETensor D,
                              const NVTETensor bias, NVTETensor pre_gelu_out, bool transa,
-                             bool transb, bool grad, NVTETensor workspace, bool accumulate,
+                             bool transb, bool grad, NVTETensor workspace, float alpha, bool accumulate,
                              bool use_split_accumulator, int math_sm_count, int m_split,
                              int n_split, bool gemm_producer, const NVTETensor counter,
                              cudaStream_t stream);
@@ -225,7 +225,7 @@ void nvte_cublas_atomic_gemm(const NVTETensor A, const NVTETensor B, NVTETensor 
  */
 void nvte_multi_tensor_gemm(const NVTETensor *A, const NVTETensor *B, NVTETensor *D,
                             const NVTETensor *bias, NVTETensor *pre_gelu_out, const int num_gemms,
-                            bool transa, bool transb, bool grad, NVTETensor *workspace,
+                            bool transa, bool transb, bool grad, NVTETensor *workspace, float alpha,
                             bool accumulate, bool use_split_accumulator, int math_sm_count,
                             cudaStream_t stream);
 #ifdef __cplusplus

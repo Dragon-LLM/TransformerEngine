@@ -266,7 +266,7 @@ std::vector<py::object> gemm(py::handle A, bool transa, py::handle B, bool trans
       if (bulk_overlap) {
         NVTE_SCOPED_GIL_RELEASE({
           comm_overlap->bulk_overlap(A_tensor, transa, B_tensor, transb, out_tensor, bias_tensor,
-                                     te_pre_gelu_out, te_workspace, grad, accumulate,
+                                     te_pre_gelu_out, te_workspace, alpha, grad, accumulate,
                                      use_split_accumulator, comm_type.value(), extra_output_tensor,
                                      main_stream);
         });
@@ -274,14 +274,14 @@ std::vector<py::object> gemm(py::handle A, bool transa, py::handle B, bool trans
         if (comm_overlap->is_atomic_gemm()) {
           NVTE_SCOPED_GIL_RELEASE({
             comm_overlap->atomic_gemm_overlap_ag(A_tensor, transa, B_tensor, transb, out_tensor,
-                                                 bias_tensor, te_pre_gelu_out, te_workspace, grad,
+                                                 bias_tensor, te_pre_gelu_out, te_workspace, alpha, grad,
                                                  accumulate, use_split_accumulator,
                                                  extra_output_tensor, main_stream);
           });
         } else {
           NVTE_SCOPED_GIL_RELEASE({
             comm_overlap->split_overlap_ag(A_tensor, transa, B_tensor, transb, out_tensor,
-                                           bias_tensor, te_pre_gelu_out, te_workspace, grad,
+                                           bias_tensor, te_pre_gelu_out, te_workspace, alpha, grad,
                                            accumulate, use_split_accumulator, extra_output_tensor,
                                            main_stream);
           });
@@ -290,14 +290,14 @@ std::vector<py::object> gemm(py::handle A, bool transa, py::handle B, bool trans
         if (comm_overlap->is_atomic_gemm()) {
           NVTE_SCOPED_GIL_RELEASE({
             comm_overlap->atomic_gemm_overlap_rs(A_tensor, transa, B_tensor, transb, out_tensor,
-                                                 bias_tensor, te_pre_gelu_out, te_workspace, grad,
+                                                 bias_tensor, te_pre_gelu_out, te_workspace, alpha, grad,
                                                  accumulate, use_split_accumulator,
                                                  extra_output_tensor, main_stream);
           });
         } else {
           NVTE_SCOPED_GIL_RELEASE({
             comm_overlap->split_overlap_rs(A_tensor, transa, B_tensor, transb, out_tensor,
-                                           bias_tensor, te_pre_gelu_out, te_workspace, grad,
+                                           bias_tensor, te_pre_gelu_out, te_workspace, alpha, grad,
                                            accumulate, use_split_accumulator, extra_output_tensor,
                                            main_stream);
           });
@@ -381,10 +381,10 @@ void te_atomic_gemm(at::Tensor A, at::Tensor A_scale_inverse, DType A_type,
       pre_gelu_out.data_ptr(), gelu_shape, GetTransformerEngineDType(pre_gelu_out.scalar_type()));
   auto te_workspace = makeTransformerEngineTensor(workspace.data_ptr(),
                                                   std::vector<size_t>{workspaceSize}, DType::kByte);
-
+  const float alpha = 1.0f;
   NVTE_SCOPED_GIL_RELEASE({
     nvte_cublas_atomic_gemm(te_A.data(), te_B.data(), te_D.data(), te_bias.data(),
-                            te_pre_gelu_out.data(), transa, transb, grad, te_workspace.data(),
+                            te_pre_gelu_out.data(), transa, transb, grad, te_workspace.data(), alpha,
                             accumulate, use_split_accumulator, math_sm_count, m_split, n_split,
                             gemm_producer, te_counter.data(), at::cuda::getCurrentCUDAStream());
   });
@@ -395,7 +395,7 @@ std::optional<std::vector<at::Tensor>> te_general_grouped_gemm(
     std::optional<std::vector<at::Tensor>> D, DType D_type, std::vector<int64_t> m_splits,
     std::vector<at::Tensor> bias, DType bias_type, bool single_output,
     std::vector<at::Tensor> pre_gelu_out, bool grad, std::vector<at::Tensor> workspace,
-    size_t workspaceSize, bool accumulate, bool use_split_accumulator, int math_sm_count) {
+    size_t workspaceSize, float alpha, bool accumulate, bool use_split_accumulator, int math_sm_count) {
   if (single_output && D == std::nullopt) {
     NVTE_ERROR("not implemented, D should be allocated for single output case.");
   }
@@ -546,7 +546,7 @@ std::optional<std::vector<at::Tensor>> te_general_grouped_gemm(
   NVTE_SCOPED_GIL_RELEASE({
     nvte_multi_tensor_gemm(te_A_vector.data(), te_B_vector.data(), te_D_vector.data(),
                            te_bias_vector.data(), te_pre_gelu_out_vector.data(), te_A_vector.size(),
-                           transa, transb, grad, te_workspace_vector.data(), accumulate,
+                           transa, transb, grad, te_workspace_vector.data(), alpha, accumulate,
                            use_split_accumulator, math_sm_count, at::cuda::getCurrentCUDAStream());
   });
   return bias;

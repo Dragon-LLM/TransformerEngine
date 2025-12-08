@@ -85,6 +85,8 @@ class _Linear(torch.autograd.Function):
         weight: torch.Tensor,
         inp: torch.Tensor,
         bias: Optional[torch.Tensor],
+        alpha_fwd: float,
+        alpha_bwd: float,
         is_first_microbatch: Union[bool, None],
         fp8: bool,
         fp8_calibration: bool,
@@ -312,6 +314,7 @@ class _Linear(torch.autograd.Function):
             get_workspace(),
             quantization_params=output_quantizer,
             out_dtype=activation_dtype,
+            alpha=alpha_fwd,
             bias=bias,
             use_split_accumulator=use_split_accumulator,
             ub=ub_obj,
@@ -474,6 +477,7 @@ class _Linear(torch.autograd.Function):
                 if in_fp8_activation_recompute_phase():
                     FP8GlobalStateManager.IS_FIRST_FP8_MODULE = _first_fp8_module
             ctx.wgrad_store = wgrad_store
+            ctx.alpha_bwd = alpha_bwd
 
         # ------------------------------------------------------
         # Cached state for backward pass is ready...
@@ -718,6 +722,7 @@ class _Linear(torch.autograd.Function):
                     quantization_params=ctx.grad_input_quantizer,
                     out=gemm_out,
                     out_dtype=ctx.activation_dtype,
+                    alpha=ctx.alpha_bwd,
                     use_split_accumulator=use_split_accumulator,
                     ub=ub_obj_dgrad,
                     ub_type=ub_type_dgrad,
@@ -842,6 +847,7 @@ class _Linear(torch.autograd.Function):
                     "out_dtype": (
                         main_grad.dtype if ctx.fuse_wgrad_accumulation else ctx.activation_dtype
                     ),
+                    "alpha": ctx.alpha_bwd,
                     "quantization_params": ctx.grad_weight_quantizer,
                     "accumulate": (
                         accumulate_wgrad_into_param_main_grad
@@ -970,6 +976,8 @@ class _Linear(torch.autograd.Function):
             wgrad,
             dgrad.view(ctx.inp_shape) if ctx.requires_dgrad else None,
             grad_bias,
+            None,  # alpha_fwd
+            None,  # alpha_bwd
             None,  # is_first_microbatch
             None,  # fp8
             None,  # fp8_calibration
@@ -1374,6 +1382,8 @@ class Linear(TransformerEngineBaseModule):
         is_first_microbatch: Optional[bool] = None,
         fp8_output: Optional[bool] = False,
         fp8_grad: Optional[bool] = False,
+        alpha_fwd: float = 1.0,
+        alpha_bwd: float = 1.0,
     ) -> Union[torch.Tensor, Tuple[torch.Tensor, ...]]:
         """
         Apply the linear transformation to the input.
@@ -1457,6 +1467,8 @@ class Linear(TransformerEngineBaseModule):
                 weight_tensor,
                 inp,
                 bias_tensor if (self.apply_bias and not self.gemm_bias_unfused_add) else None,
+                alpha_fwd,
+                alpha_bwd,
                 is_first_microbatch,
                 self.fp8,
                 self.fp8_calibration,

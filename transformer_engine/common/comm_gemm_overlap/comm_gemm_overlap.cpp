@@ -324,7 +324,7 @@ CommOverlapBase::~CommOverlapBase() {
 */
 void CommOverlapBase::bulk_overlap(const TensorWrapper &A, bool transa, const TensorWrapper &B,
                                    bool transb, TensorWrapper &D, TensorWrapper &bias,
-                                   TensorWrapper &pre_gelu_out, TensorWrapper &workspace, bool grad,
+                                   TensorWrapper &pre_gelu_out, TensorWrapper &workspace, float alpha, bool grad,
                                    bool accumulate, bool use_split_accumulator,
                                    CommOverlapType comm_type, TensorWrapper &rs_output,
                                    cudaStream_t stream_main) {
@@ -365,7 +365,7 @@ void CommOverlapBase::bulk_overlap(const TensorWrapper &A, bool transa, const Te
   if (_comm_launch_event)
     NVTE_CHECK_CUDA(cudaStreamWaitEvent((cudaStream_t)_stream_compute[0], _comm_launch_event, 0));
   nvte_cublas_gemm(A.data(), B.data(), D.data(), bias.data(), pre_gelu_out.data(), transa, transb,
-                   grad, workspace.data(), accumulate, use_split_accumulator, _math_sms,
+                   grad, workspace.data(), alpha, accumulate, use_split_accumulator, _math_sms,
                    _stream_compute[0]);
 
   _ub_comm->sms = ori_sms;
@@ -382,7 +382,7 @@ void CommOverlapBase::bulk_overlap(const TensorWrapper &A, bool transa, const Te
 void CommOverlapBase::atomic_gemm_overlap_rs(const TensorWrapper &A, bool transa,
                                              const TensorWrapper &B, bool transb, TensorWrapper &D,
                                              TensorWrapper &bias, TensorWrapper &pre_gelu_out,
-                                             TensorWrapper &workspace, bool grad, bool accumulate,
+                                             TensorWrapper &workspace, float alpha, bool grad, bool accumulate,
                                              bool use_split_accumulator, TensorWrapper &rs_output,
                                              cudaStream_t stream_main) {
   int ori_sms = _ub_comm->sms;
@@ -416,7 +416,7 @@ void CommOverlapBase::atomic_gemm_overlap_rs(const TensorWrapper &A, bool transa
   auto output_d = get_buffer_chunk_like(D, 0, {n, m});
   auto workspace_chunk = get_tensor_chunk(workspace, 0, {workspace_size_chunk});
   nvte_cublas_atomic_gemm(A.data(), B.data(), output_d.data(), bias.data(), pre_gelu_out.data(),
-                          transa, transb, grad, workspace_chunk.data(), accumulate,
+                          transa, transb, grad, workspace_chunk.data(), alpha, accumulate,
                           use_split_accumulator, _math_sms, _num_splits, 0, true, _counter.data(),
                           _stream_compute[0]);
 
@@ -479,7 +479,7 @@ void CommOverlapBase::atomic_gemm_overlap_rs(const TensorWrapper &A, bool transa
 void CommOverlapBase::split_overlap_rs(const TensorWrapper &A, bool transa, const TensorWrapper &B,
                                        bool transb, TensorWrapper &D, TensorWrapper &bias,
                                        TensorWrapper &pre_gelu_out, TensorWrapper &workspace,
-                                       bool grad, bool accumulate, bool use_split_accumulator,
+                                       float alpha, bool grad, bool accumulate, bool use_split_accumulator,
                                        TensorWrapper &rs_output, cudaStream_t stream_main) {
   // Get GEMM dimensions
   int ori_sms = _ub_comm->sms;
@@ -522,7 +522,7 @@ void CommOverlapBase::split_overlap_rs(const TensorWrapper &A, bool transa, cons
     auto workspace_chunk = get_tensor_chunk(workspace, 0, {workspace_size_chunk});
 
     nvte_cublas_gemm(input_a_chunk.data(), B.data(), output_chunk.data(), bias_chunk.data(),
-                     pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
+                     pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(), alpha, accumulate,
                      use_split_accumulator, _math_sms, _stream_compute[0]);
 
     for (int i = 1; i < _num_splits; i++) {
@@ -534,7 +534,7 @@ void CommOverlapBase::split_overlap_rs(const TensorWrapper &A, bool transa, cons
 
       nvte_cublas_gemm(input_a_chunk.data(), B.data(), output_chunk.data(), bias_chunk.data(),
                        pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(),
-                       accumulate, use_split_accumulator, _math_sms,
+                       alpha, accumulate, use_split_accumulator, _math_sms,
                        _stream_compute[i % _stream_compute.size()]);
 
       NVTE_CHECK_CUDA(
@@ -582,7 +582,7 @@ void CommOverlapBase::split_overlap_rs(const TensorWrapper &A, bool transa, cons
           workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk});
 
       nvte_cublas_gemm(input_a_chunk.data(), B.data(), output_chunk.data(), bias_chunk.data(),
-                       pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(),
+                       pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(), alpha,
                        accumulate, use_split_accumulator, _math_sms,
                        _stream_compute[i % _stream_compute.size()]);
 
@@ -786,7 +786,7 @@ TensorWrapper CommOverlapP2PBase::get_buffer_chunk_by_id(const TensorWrapper &so
 */
 void CommOverlapP2PBase::atomic_gemm_overlap_ag(
     const TensorWrapper &A, bool transa, const TensorWrapper &B, bool transb, TensorWrapper &D,
-    TensorWrapper &bias, TensorWrapper &pre_gelu_out, TensorWrapper &workspace, bool grad,
+    TensorWrapper &bias, TensorWrapper &pre_gelu_out, TensorWrapper &workspace, float alpha, bool grad,
     bool accumulate, bool use_split_accumulator, TensorWrapper &B_copy, cudaStream_t stream_main) {
   int ori_sms = _ub_comm->sms;
   _ub_comm->use_ce = _use_ce;
@@ -847,7 +847,7 @@ void CommOverlapP2PBase::atomic_gemm_overlap_ag(
     }
     if (i == 0) {
       nvte_cublas_atomic_gemm(A.data(), input_b.data(), D_buffer.data(), bias.data(),
-                              pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(),
+                              pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(), alpha,
                               accumulate, use_split_accumulator, _math_sms, 0, _tp_size, false,
                               _counter.data(), stream_main);
     }
@@ -887,7 +887,7 @@ void CommOverlapP2PBase::atomic_gemm_overlap_ag(
 void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
                                           const TensorWrapper &B, bool transb, TensorWrapper &D,
                                           TensorWrapper &bias, TensorWrapper &pre_gelu_out,
-                                          TensorWrapper &workspace, bool grad, bool accumulate,
+                                          TensorWrapper &workspace, float alpha, bool grad, bool accumulate,
                                           bool use_split_accumulator, TensorWrapper &B_copy,
                                           cudaStream_t stream_main) {
   int ori_sms = _ub_comm->sms;
@@ -967,8 +967,8 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
           workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk});
 
       nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
-                       aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
-                       use_split_accumulator, _math_sms,
+                       aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), alpha, 
+                       accumulate, use_split_accumulator, _math_sms,
                        _stream_compute[i % _stream_compute.size()]);
 
       if (i < num_steps - 1) {
@@ -1014,8 +1014,8 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
           workspace, (i % _stream_compute.size()) * workspace_size_chunk, {workspace_size_chunk});
 
       nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
-                       aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
-                       use_split_accumulator, _math_sms,
+                       aux_chunk.data(), transa, transb, grad, workspace_chunk.data(), alpha, 
+                       accumulate, use_split_accumulator, _math_sms,
                        _stream_compute[i % _stream_compute.size()]);
 
       if (i < _tp_size - 1) {
@@ -1054,7 +1054,7 @@ void CommOverlapP2PBase::split_overlap_ag(const TensorWrapper &A, bool transa,
 */
 void CommOverlapP2PBase::atomic_gemm_overlap_rs(
     const TensorWrapper &A, bool transa, const TensorWrapper &B, bool transb, TensorWrapper &D,
-    TensorWrapper &bias, TensorWrapper &pre_gelu_out, TensorWrapper &workspace, bool grad,
+    TensorWrapper &bias, TensorWrapper &pre_gelu_out, TensorWrapper &workspace, float alpha, bool grad,
     bool accumulate, bool use_split_accumulator, TensorWrapper &rs_output,
     cudaStream_t stream_main) {
   int ori_sms = _ub_comm->sms;
@@ -1077,7 +1077,7 @@ void CommOverlapP2PBase::atomic_gemm_overlap_rs(
   // Process GEMM chunks in the order that AG+GEMM places the output chunks.
   auto output_d = get_buffer_chunk_like(D, 0, shape_to_vector(D.shape()));
   nvte_cublas_atomic_gemm(A.data(), B.data(), output_d.data(), bias.data(), pre_gelu_out.data(),
-                          transa, transb, grad, workspace.data(), accumulate, use_split_accumulator,
+                          transa, transb, grad, workspace.data(), alpha, accumulate, use_split_accumulator,
                           _math_sms, 0, _tp_size, true, _counter.data(), stream_main);
 
   // P2P communication chunk
@@ -1118,7 +1118,7 @@ void CommOverlapP2PBase::atomic_gemm_overlap_rs(
 void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
                                           const TensorWrapper &B, bool transb, TensorWrapper &D,
                                           TensorWrapper &bias, TensorWrapper &pre_gelu_out,
-                                          TensorWrapper &workspace, bool grad, bool accumulate,
+                                          TensorWrapper &workspace, float alpha, bool grad, bool accumulate,
                                           bool use_split_accumulator, TensorWrapper &rs_output,
                                           cudaStream_t stream_main) {
   int ori_sms = _ub_comm->sms;
@@ -1160,8 +1160,8 @@ void CommOverlapP2PBase::split_overlap_rs(const TensorWrapper &A, bool transa,
         get_tensor_chunk(workspace, stream_id * workspace_size_chunk, {workspace_size_chunk});
 
     nvte_cublas_gemm(A.data(), input_b_chunk.data(), output_chunk.data(), bias.data(),
-                     pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(), accumulate,
-                     use_split_accumulator, _math_sms, _stream_compute[stream_id]);
+                     pre_gelu_out.data(), transa, transb, grad, workspace_chunk.data(), alpha,
+                     accumulate, use_split_accumulator, _math_sms, _stream_compute[stream_id]);
 
     if (i > 0) {
       // P2P communication chunk
