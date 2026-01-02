@@ -84,6 +84,12 @@ from transformer_engine.pytorch.tensor import Float8Tensor
 from transformer_engine.pytorch.tensor import MXFP8Tensor
 from transformer_engine.pytorch.tensor import Float8BlockwiseQTensor
 from transformer_engine.pytorch.tensor import NVFP4Tensor
+from transformer_engine.pytorch.router import FusedTopkScoreFunction
+from transformer_engine.pytorch.router import fused_topk_with_score_function
+from transformer_engine.pytorch.router import FusedComputeScoresForMoEAuxLoss
+from transformer_engine.pytorch.router import fused_compute_score_for_moe_aux_loss
+from transformer_engine.pytorch.router import FusedAuxLoss
+from transformer_engine.pytorch.router import fused_moe_aux_loss
 
 try:
     torch._dynamo.config.error_on_nested_jit_trace = False
