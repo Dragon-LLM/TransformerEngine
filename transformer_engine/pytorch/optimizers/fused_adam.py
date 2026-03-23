@@ -154,6 +154,7 @@ class FusedAdam(torch.optim.Optimizer):
 
         # If the optimizer is capturable then LR should be a tensor (on GPU)
         lr = torch.tensor(lr, dtype=torch.float32) if capturable else lr
+        print("FusedAdam EPS:", eps)
         defaults = {
             "lr": lr,
             "bias_correction": bias_correction,
@@ -624,6 +625,21 @@ class FusedAdam(torch.optim.Optimizer):
                 # pylint: disable=cell-var-from-loop
                 inv_scale_arg = () if inv_scale is None else (inv_scale,)
                 out_dtype_arg = () if out_dtype is None else (out_dtype,)
+                epsilon = group["eps"] if group["eps"] is not None else 1e-8
+                """
+                print("_dummy_overflow_buf:", self._dummy_overflow_buf)
+                print("tensor_lists:", [t.shape for l in tensor_lists for t in l])
+                print("group['lr']:", group["lr"])
+                print("beta1:", beta1)
+                print("beta2:", beta2)
+                print("group['eps']:", group["eps"])
+                print("group['step']:", group["step"])
+                print("self.adam_w_mode:", self.adam_w_mode)
+                print("bias_correction:", bias_correction)
+                print("group['weight_decay']:", group["weight_decay"])
+                print("inv_scale_arg:", inv_scale_arg)
+                print("out_dtype_arg:", out_dtype_arg)
+                """
                 multi_tensor_applier(
                     adam_func,
                     self._dummy_overflow_buf,
@@ -631,7 +647,7 @@ class FusedAdam(torch.optim.Optimizer):
                     group["lr"],
                     beta1,
                     beta2,
-                    group["eps"],
+                    epsilon,
                     group["step"],
                     self.adam_w_mode,
                     bias_correction,

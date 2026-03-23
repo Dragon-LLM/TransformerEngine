@@ -626,6 +626,7 @@ class FusedAdemamix(torch.optim.Optimizer):
                 # pylint: disable=cell-var-from-loop
                 inv_scale_arg = () if inv_scale is None else (inv_scale,)
                 out_dtype_arg = () if out_dtype is None else (out_dtype,)
+                epsilon = 1e-8 if group["eps"] is None else group["eps"] 
                 multi_tensor_applier(
                     ademamix_func,
                     self._dummy_overflow_buf,
@@ -636,7 +637,7 @@ class FusedAdemamix(torch.optim.Optimizer):
                     beta3,
                     alpha,
                     self.normalize_alpha,
-                    group["eps"],
+                    epsilon,
                     group["step"],
                     bias_correction,
                     group["weight_decay"],
